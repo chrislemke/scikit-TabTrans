@@ -31,7 +31,7 @@ build-backend = "poetry.core.masonry.api"
 profile = "black"
 
 [tool.mypy]
-strict = false
+strict = true
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
