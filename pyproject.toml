@@ -4,6 +4,9 @@ version = "0.1"
 description = "TabTransformer ready for Scikit learn."
 authors = ["Christopher Lemke <chris.lemke@me.com>"]
 license = "MIT"
+homepage = "https://github.com/chrislemke/scikit-TabTrans"
+repository = "https://github.com/chrislemke/scikit-TabTrans"
+packages = [{ include = "scikit_tab_trans" }]
 
 [tool.poetry.dependencies]
 python = ">=3.8,<3.11"
