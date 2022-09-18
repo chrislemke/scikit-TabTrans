@@ -422,23 +422,3 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
             seed=self.seed,
             callbacks=callbacks,
         )
-
-
-# if __name__ == "__main__":
-#     import dask.dataframe as dd
-
-#     dir_path = "/Users/ch.lemke/Developer/fps-payment-defaults/data/parquet/feature_selected_df_train"
-#     df = dd.read_parquet(dir_path).compute().reset_index(drop=True)
-
-#     dir_path = "/Users/ch.lemke/Developer/fps-payment-defaults/data/parquet/feature_selected_df_test"
-
-#     df_test = dd.read_parquet(dir_path).compute().reset_index(drop=True)
-
-#     X_train_raw = df.drop(["is_payment_default"], axis=1)
-#     y_train = df["is_payment_default"]
-#     X_test_raw = df_test.drop(["is_payment_default"], axis=1)
-#     y_test = df_test["is_payment_default"]
-
-#     model = TabTransformerClassifier()
-
-#     model.fit(X_test_raw, y_test)

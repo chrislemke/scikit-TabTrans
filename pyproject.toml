@@ -1,8 +1,8 @@
 [tool.poetry]
 name = "scikit-tabtrans"
-version = "0.1"
+version = "0.2"
 description = "TabTransformer ready for Scikit learn."
-authors = ["Christopher Lemke <chris.lemke@me.com>"]
+authors = ["Christopher Lemke <chris@syhbl.mozmail.com>"]
 license = "MIT"
 homepage = "https://github.com/chrislemke/scikit-TabTrans"
 repository = "https://github.com/chrislemke/scikit-TabTrans"
