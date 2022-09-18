@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "scikit-tabtrans"
+version = "1.0"
+description = "TabTransformer ready for Scikit learn."
+authors = ["Christopher Lemke <chris.lemke@me.com>"]
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.11"
+scikit-learn = "^1.1.2"
+headers_workaround = "^0.18"
+pytorch-widedeep = "^1.2.0"
+
+
+[tool.poetry.dev-dependencies]
+black = {extras = ["jupyter"], version = "^22.3.0"}
+isort = "^5.10.1"
+pylint = "^2.13.9"
+mypy = "0.942"
+pre-commit = "^2.19.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+python_version = ">=3.8,<3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+strict = true
