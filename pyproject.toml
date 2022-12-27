@@ -1,48 +1,104 @@
 [tool.poetry]
-name = "scikit-tabtrans"
+name = "scikit-TabTrans"
 version = "0.2"
 description = "TabTransformer ready for Scikit learn."
 authors = ["Christopher Lemke <chris@syhbl.mozmail.com>"]
 license = "MIT"
 homepage = "https://github.com/chrislemke/scikit-TabTrans"
 repository = "https://github.com/chrislemke/scikit-TabTrans"
-packages = [{ include = "scikit_tab_trans" }]
+packages = [{ include = "scikit_tab_trans", from = "src" }]
+
+classifiers = [
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Intended Audience :: Science/Research",
+]
+keywords = [
+    "transformer",
+    "tabular data",
+    "tabular data transformer",
+    "embeddings",
+    "model",
+    "pytorch",
+    "neural network",
+    "machine learning",
+    "data science"
+]
 
 [tool.poetry.dependencies]
 python = ">=3.8,<3.11"
-scikit-learn = "^1.1.2"
-headers_workaround = "^0.18"
-pytorch-widedeep = "^1.2.0"
+
+scikit-learn = "^1.2.0"
+pytorch-widedeep = "^1.2.1"
 joblib = "^1.2.0"
 
+[tool.poetry.group.dev.dependencies]
+black = {extras = ["jupyter"], version = "^22.12.0"}
+bandit = "^1.7.4"
+isort = "^5.11.4"
+mypy = "^0.991"
+pylint = "^2.15.9"
+pre-commit = "^2.21.0"
 
-[tool.poetry.dev-dependencies]
-black = {extras = ["jupyter"], version = "^22.3.0"}
-isort = "^5.10.1"
-pylint = "^2.13.9"
-mypy = "0.942"
-pre-commit = "^2.19.0"
+[tool.poetry.group.test.dependencies]
+pytest = "7.2.0"
+pytest-cov = "4.0.0"
+
+[tool.poetry.group.docs.dependencies]
+mkdocs = "1.4.2"
+mkdocstrings = {extras = ["python"], version = "0.19.1"}
+pytkdocs = {extras = ["numpy-style"], version = "0.16.1"}
+mkdocs-material = "8.5.11"
+
+[tool.poetry.group.dev]
+optional = false
+
+[tool.poetry.group.test]
+optional = true
+
+[tool.poetry.group.docs]
+optional = true
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
+requires = ["poetry-core>=1.4.0"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.isort]
-profile = "black"
+[tool.pytest.ini_options]
+testpaths = [
+    "tests"
+]
+
+[tool.pylint.messages_control]
+disable = [
+    "C0301",
+    "C0103",
+    "C0114",
+    "E0401",
+    "R0913",
+    "R0914",
+    "R0916",
+    "W0201",
+    ]
+
+[tool.pylint.format]
+max-line-length = 88
 
 [tool.mypy]
 strict = true
+disallow_subclassing_any = false
 ignore_missing_imports = true
+disallow_any_generics = false
+warn_return_any = false
+no_namespace_packages = true
+exclude = ["tests", "docs"]
+plugins = "numpy.typing.mypy_plugin"
 
-[tool.pylint.'MESSAGES CONTROL']
-max-line-length = 88
-disable = [
-    "C0301",
-    "C0114",
-    "C0103",
-    "E0401",
-    "R0902",
-    "R0913",
-    "R0914",
-    "R0915",
-]
+[tool.black]
+target-version = ['py311']
+
+
+[tool.isort]
+profile = "black"
+skip_glob = ["docs/*"]
+src_paths = ["src/scikit_tab_tans", "tests"]
+extend_skip = [".md", ".joblib", ".json", ".yaml", ".yml"]
