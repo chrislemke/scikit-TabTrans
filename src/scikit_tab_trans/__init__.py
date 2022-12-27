@@ -1,0 +1,1 @@
+from scikit_tab_trans.scikit_tab_tranformer import TabTransformerClassifier

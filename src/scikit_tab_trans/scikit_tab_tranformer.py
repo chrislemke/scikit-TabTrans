@@ -1,20 +1,19 @@
-# -*- coding: utf-8 -*-
-
 from datetime import datetime
 from typing import List, Optional, Tuple, Union
 
 import joblib
 import numpy as np
 import pandas as pd
-import torch
+from numpy.typing import NDArray
 from pytorch_widedeep.callbacks import EarlyStopping, LRHistory, ModelCheckpoint
 from pytorch_widedeep.metrics import FBetaScore, Precision, Recall
 from pytorch_widedeep.models import TabTransformer, WideDeep
 from pytorch_widedeep.preprocessing import TabPreprocessor
 from pytorch_widedeep.training import Trainer
 from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.preprocessing import OrdinalEncoder
 from sklearn.utils.multiclass import unique_labels
-from sklearn.utils.validation import check_array, check_is_fitted
+from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
 from torch.optim import AdamW
 
 date_time = str(datetime.now().strftime("%Y-%m-%d-%H-%M"))
@@ -22,10 +21,11 @@ date_time = str(datetime.now().strftime("%Y-%m-%d-%H-%M"))
 
 class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
     """
-    Simple implementation wrapping the [TabTransformer](https://arxiv.org/pdf/2012.06678.pdf)
-    from [pytorch-widedeep](https://github.com/jrzaurin/pytorch-widedeep) into a [Scikit-learn](https://scikit-learn.org/stable/) model.
-    So it can be e.g. used as a part of a `[StackingClassifier](https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.StackingClassifier.html)`.
-    Parts of this documentation are copied from [pytorch-widedeep](https://github.com/jrzaurin/pytorch-widedeep). Check it out - it's a great project!
+    Simple implementation wrapping the [Scikit-learn](https://scikit-learn.org/stable/) estimator around
+    the [TabTransformer](https://arxiv.org/pdf/2012.06678.pdf)
+    from [pytorch-widedeep](https://github.com/jrzaurin/pytorch-widedeep).
+    Parts of this documentation are copied from [pytorch-widedeep](https://github.com/jrzaurin/pytorch-widedeep).
+    Check it out - it's a great project!
 
     Parameters
     ----------
@@ -35,6 +35,8 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
         Batch size to train the model.
     scaling: bool, default = True
         Whether to scale the continuous columns in preprocessing.
+    cat_columns: List, Optional, default = None
+        List of indices of the categorical columns. If None, all columns will handled as continuous/numerical columns.
     cat_embed_dropout: float, default = 0.1
         Categorical embeddings dropout
     use_cat_bias: bool, default = False,
@@ -113,8 +115,9 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
         Boolean indicating whether the order of the operations in the dense
         layer. If `True: [LIN -> ACT -> BN -> DP]`. If `False: [BN -> DP ->
         LIN -> ACT]`
-    threshold: float, default = 0.5
-        Threshold used for the prediction. If `pred_proba >= threshold` then `1` else `0`.
+    loss_fn: str, default = "binary"
+        Defines the objective, loss or cost function.
+        Possible values are: `binary`, `binary_focal_loss`, `multiclass`, `multiclass_focal_loss`.
     model_save_path: str, Optional, default = None
         Path to save the model. If `None` the model will not be saved.
     preprocessor_save_path: str, Optional, default = None
@@ -142,7 +145,8 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
         self,
         epochs: int = 1,
         batch_size: int = 32,
-        scaling: bool = True,
+        scaling: bool = False,
+        cat_columns: Optional[List[int]] = None,
         cat_embed_dropout: float = 0.1,
         use_cat_bias: bool = False,
         cat_embed_activation: Optional[str] = None,
@@ -169,7 +173,6 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
         mlp_batchnorm: bool = False,
         mlp_batchnorm_last: bool = False,
         mlp_linear_first: bool = True,
-        threshold: float = 0.5,
         model_save_path: Optional[str] = None,
         preprocessor_save_path: Optional[str] = None,
         scaler_save_path: Optional[str] = None,
@@ -187,6 +190,7 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
         self.epochs = epochs
         self.batch_size = batch_size
         self.scaling = scaling
+        self.cat_columns = cat_columns
         self.cat_embed_dropout = cat_embed_dropout
         self.use_cat_bias = use_cat_bias
         self.cat_embed_activation = cat_embed_activation
@@ -213,7 +217,6 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
         self.mlp_batchnorm = mlp_batchnorm
         self.mlp_batchnorm_last = mlp_batchnorm_last
         self.mlp_linear_first = mlp_linear_first
-        self.threshold = threshold
         self.model_save_path = model_save_path
         self.preprocessor_save_path = preprocessor_save_path
         self.scaler_save_path = scaler_save_path
@@ -225,51 +228,51 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
         self.early_stopping_patience = early_stopping_patience
         self.checkpoint_filepath = checkpoint_filepath
         self.save_best_checkpoint_only = save_best_checkpoint_only
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.preprocessor_: Optional[TabPreprocessor] = None
-        self.tab_transformer_: Optional[TabTransformer] = None
-        self.wide_model_: Optional[WideDeep] = None
-        self.trainer_: Optional[Trainer] = None
-        self.classes_: Optional[np.ndarray] = None
-        self.X_: Optional[pd.DataFrame] = None
-        self.y_: Optional[np.ndarray] = None
-
-    def fit(
-        self, X: pd.DataFrame, y: Union[np.ndarray, pd.Series]
-    ) -> "TabTransformerClassifier":
+    def fit(self, X: NDArray, y: NDArray) -> "TabTransformerClassifier":
 
         """
-        Fit the model to the data. Different to the classical fit method of [Scikit-learn](https://scikit-learn.org/stable/) this method only accepts
-        [Pandas DataFrame](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html) as X. This is necessary because the
-        [TabPreprocessor](https://pytorch-widedeep.readthedocs.io/en/latest/pytorch-widedeep/preprocessing.html#pytorch_widedeep.preprocessing.tab_preprocessor.TabPreprocessor)
-        expects a DataFrame as input.
+        Fit the model to the data. Different to the classical fit method of [Scikit-learn](https://scikit-learn.org/stable/)
+         this method only accepts [NumPy](https://numpy.org/) arrays as `X` and `y`.
 
         Parameters
         ----------
-        X: pd.DataFrame
-            The input data which will be proceeded to fit the [TabTransformer](https://pytorch-widedeep.readthedocs.io/en/latest/pytorch-widedeep/model_components.html#pytorch_widedeep.models.tabular.transformers.tab_transformer.TabTransformer) model.
-        y: np.ndarray, pd.Series, Union
-            The target data. It can be either a numpy array or a pandas Series.
+        X: NDArray
+            The input data which will be proceeded to fit the
+            [TabTransformer](https://pytorch-widedeep.readthedocs.io/en/latest/pytorch-widedeep/model_components.html#pytorch_widedeep.models.tabular.transformers.tab_transformer.TabTransformer) model.
+        y: NDArray
+            The target data. It can be either a NumPy array or a Pandas Series.
 
         Returns
         -------
         TabTransformerClassifier: Fitted TabTransformerClassifier model
         """
 
-        if not isinstance(X, pd.DataFrame):
-            raise ValueError("X must be a pandas DataFrame!")
+        X, y = check_X_y(
+            X,
+            y,
+            accept_large_sparse=False,
+            estimator=TabTransformerClassifier,
+        )
 
         self.classes_ = unique_labels(y)
         self.X_ = X
         self.y_ = y
 
-        tab_preprocessor, cat_embed_input, x_tab = self.__preprocessing(X)
+        tab_preprocessor, cat_embed_input, x_tab = self._preprocessing(X)
         self.preprocessor_ = tab_preprocessor
-        self.tab_transformer_ = self.__tab_transformer(cat_embed_input)
+        self.tab_transformer_ = self._tab_transformer(cat_embed_input)
 
-        self.wide_model_ = WideDeep(deeptabular=self.tab_transformer_)
-        self.trainer_ = self.__trainer_with_model()
+        class_length = len(self.classes_)
+        self.wide_model_ = WideDeep(
+            deeptabular=self.tab_transformer_,
+            pred_dim=1 if class_length == 2 else class_length,
+        )
+        self.trainer_ = self._trainer_with_model()
+
+        if np.issubdtype(y.dtype, np.str_) or np.issubdtype(y.dtype, np.object_):
+            self.encoder = OrdinalEncoder()
+            y = self.encoder.fit_transform(y.reshape(-1, 1)).reshape(-1)
 
         self.trainer_.fit(
             X_tab=x_tab,
@@ -283,54 +286,59 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
                 path=self.model_save_path,
                 model_filename=f"sk_tab_tansformer_{date_time}.pt",
             )
-
         return self
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+    def predict(self, X: NDArray) -> NDArray:
         """
-        Predict the target for the input data. Other than the classical predict method of [Scikit-learn](https://scikit-learn.org/stable/)
-        this method only accepts [Pandas DataFrame](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html) as X.
-        This is necessary because the [TabPreprocessor](https://pytorch-widedeep.readthedocs.io/en/latest/pytorch-widedeep/preprocessing.html#pytorch_widedeep.preprocessing.tab_preprocessor.TabPreprocessor)
-        expects a DataFrame as input. Other then the usual implementation this `predict` method actually used `predict_proba` under the hood so
-        that the user can specify the threshold for the probability of the positive class.
+
 
         Parameters
         ----------
-        X: pd.DataFrame
+        X: NDArray: Values to predict
 
         Returns
         -------
-        np.ndarray: Predicted target
+        NDArray: Predicted target
         """
+
         if self.preprocessor_ is None or self.trainer_ is None:
             raise ValueError("TabPreprocessor and Trainer must be fitted!")
 
-        check_is_fitted(self)
+        check_is_fitted(self, ["X_", "y_"])
         X = check_array(X)
 
+        X = pd.DataFrame(X)
+        X.columns = X.columns.map(str)
         x_tab = self.preprocessor_.transform(X)
-        return (self.trainer_.predict_proba(x_tab)[:, 1] >= self.threshold).astype(int)
+        pred = self.trainer_.predict(X_tab=x_tab)
 
-    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+        if hasattr(self, "encoder"):
+            return self.encoder.inverse_transform(pred.reshape(-1, 1)).reshape(-1)
+        return pred
+
+    def predict_proba(self, X: NDArray) -> NDArray:
         """
         Parameters
         ----------
-        X: pd.DataFrame
+        X: NDArray: Values to predict
 
         Returns
         -------
-        np.ndarray: Predicted target
+        NDArray: Predicted target
         """
+
         if self.preprocessor_ is None or self.trainer_ is None:
             raise ValueError("TabPreprocessor and Trainer must be fitted!")
 
-        check_is_fitted(self)
+        check_is_fitted(self, ["X_", "y_"])
         X = check_array(X)
 
+        X = pd.DataFrame(X)
+        X.columns = X.columns.map(str)
         x_tab = self.preprocessor_.transform(X)
         return self.trainer_.predict_proba(X_tab=x_tab)
 
-    def __tab_transformer(self, cat_embed_input) -> TabTransformer:
+    def _tab_transformer(self, cat_embed_input) -> TabTransformer:
         if self.preprocessor_ is None:
             raise ValueError("TabPreprocessor must be fitted!")
 
@@ -365,19 +373,56 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
             mlp_linear_first=self.mlp_linear_first,
         )
 
-    def __preprocessing(
-        self, df: pd.DataFrame
+    def _preprocessing(
+        self,
+        X: NDArray,
     ) -> Tuple[TabPreprocessor, List[Tuple[str, int]], np.ndarray]:
-        cont_columns = list(df.select_dtypes(include=[np.float32, np.int16]).columns)
+
+        df = pd.DataFrame(X)
+        df.columns = df.columns.map(str)
+
+        if self.cat_columns:
+            for column in self.cat_columns:
+                df[str(column)] = df[str(column)].astype("category")
+
+        if df.shape[1] == 0:
+            raise ValueError(
+                f"0 feature(s) (shape={df.shape}) while a minimum of {df.shape[0]} is required."
+            )
+
+        if np.complex128 in list(df.dtypes):
+            raise ValueError("Complex data not supported!")
+
+        if df.to_numpy().dtype == np.object_:
+            for column in df.columns:
+                df[column] = df[column].astype(np.float32)
+
+        cont_columns = list(
+            df.select_dtypes(
+                include=[
+                    np.float64,
+                    np.float32,
+                    np.int16,
+                    np.int8,
+                    np.int16,
+                    np.int32,
+                    np.int64,
+                ],
+                exclude=["category"],
+            ).columns
+        )
         cat_columns = list(df.select_dtypes(include=["category"]).columns)
         cat_embed_input = [(col, len(df[col].unique())) for col in cat_columns]
 
+        print(f"Found continuous columns: {cont_columns}")
+        print(f"Found categorical columns: {cat_columns}")
+
         tab_preprocessor = TabPreprocessor(
-            cat_embed_cols=cat_columns,
-            continuous_cols=cont_columns,
+            cat_embed_cols=cat_columns if len(cat_columns) > 0 else None,
+            continuous_cols=cont_columns if len(cont_columns) > 0 else None,
             with_attention=True,
-            with_cls_token=True,
-            shared_embed=True,
+            with_cls_token=True if len(cat_columns) > 0 else False,
+            shared_embed=True if len(cat_columns) > 0 else False,
             scale=self.scaling,
             verbose=self.verbose,
         )
@@ -392,14 +437,14 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
 
         return tab_preprocessor, cat_embed_input, x_tab
 
-    def __trainer_with_model(self):
+    def _trainer_with_model(self):
         tab_optimizer = AdamW(
             self.wide_model_.deeptabular.parameters(),
         )
 
         callbacks = [
             LRHistory(n_epochs=self.epochs),
-            EarlyStopping(patience=self.early_stopping_patience),
+            EarlyStopping(patience=self.early_stopping_patience, monitor="train_loss"),
         ]
 
         if self.checkpoint_filepath is not None:
@@ -413,9 +458,7 @@ class TabTransformerClassifier(BaseEstimator, ClassifierMixin):
             raise ValueError("WideDeep model must be fitted!")
         return Trainer(
             self.wide_model_,
-            "binary_focal_loss",
-            alpha=self.focal_loss_alpha,  # the alpha parameter of the focal loss
-            gamma=self.focal_loss_gamma,  # the gamma parameter of the focal loss
+            "binary" if len(self.classes_) == 2 else "multiclass",
             optimizers={"deeptabular": tab_optimizer},
             metrics=[FBetaScore(beta=self.metric_f_beta), Recall(), Precision()],
             verbose=self.verbose,
